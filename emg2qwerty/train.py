@@ -51,6 +51,8 @@ def main(config: DictConfig):
 
     # Helper to instantiate transforms
     def _build_transform(configs: Sequence[DictConfig]) -> Transform[Any, Any]:
+        transform_list = [instantiate(cfg) for cfg in configs]
+        log.info(f"Applying augmentations: {transform_list}")
         return transforms.Compose([instantiate(cfg) for cfg in configs])
 
     # Instantiate LightningModule

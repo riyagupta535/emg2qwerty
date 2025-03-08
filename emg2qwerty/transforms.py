@@ -243,3 +243,20 @@ class SpecAugment:
 
         # (..., C, freq, T) -> (T, ..., C, freq)
         return x.movedim(-1, 0)
+    
+@dataclass
+class GaussianNoise:
+    """
+    Applies Gaussian noise to the input tensor.
+    
+    Args:
+        mean (float): Mean of the Gaussian distribution (default: 0.0).
+        std (float): Standard deviation of the Gaussian distribution (default: 0.01).
+    """
+    
+    mean: float = 0.0
+    std: float = 0.01
+    
+    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
+        noise = torch.randn_like(tensor) * self.std + self.mean
+        return tensor + noise
