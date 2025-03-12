@@ -260,3 +260,46 @@ class GaussianNoise:
     def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
         noise = torch.randn_like(tensor) * self.std + self.mean
         return tensor + noise
+
+@dataclass
+class Dropout:
+    """
+    Applies dropout to the input tensor by randomly setting a fraction of elements to zero.
+
+    Args:
+        p (float): Probability of an element being zeroed. (default: 0.1)
+    """
+
+    p: float = 0.1
+
+    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
+        if self.p <= 0.0:
+            return tensor
+        mask = torch.rand_like(tensor) > self.p
+        return tensor * mask
+    
+
+@dataclass
+class RandomBandRotation:
+    """Applies band rotation augmentation by shifting the electrode channels
+    by an offset value randomly chosen from ``offsets``. By default, assumes
+    the input is of shape (..., C).
+
+    NOTE: If the input is 3D with batch dim (TNC), then this transform
+    applies band rotation for all items in the batch with the same offset.
+    To apply different rotations each batch item, use the ``ForEach`` wrapper.
+
+    Args:
+        offsets (list): List of integers denoting the offsets by which the
+            electrodes are allowed to be shifted. A random offset from this
+            list is chosen for each application of the transform.
+        channel_dim (int): The electrode channel dimension. (default: -1)
+    """
+
+    offsets: Sequence[int] = (-1, 0, 1)
+    channel_dim: int = -1
+
+    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
+        # Choose a random offset from the list
+        offset = np.random.choice(self.offsets) if len(self.offsets) > 0 else 0
+        return tensor.roll(offset, dims=self.channel_dim)
