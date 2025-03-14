@@ -11,6 +11,8 @@ from typing import Any, TypeVar
 import numpy as np
 import torch
 import torchaudio
+from scipy.signal import resample
+
 
 
 TTransformIn = TypeVar("TTransformIn")
@@ -260,3 +262,102 @@ class GaussianNoise:
     def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
         noise = torch.randn_like(tensor) * self.std + self.mean
         return tensor + noise
+
+@dataclass
+class Dropout:
+    """
+    Applies dropout to the input tensor by randomly setting a fraction of elements to zero.
+
+    Args:
+        p (float): Probability of an element being zeroed. (default: 0.1)
+    """
+
+    p: float = 0.1
+
+    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
+        if self.p <= 0.0:
+            return tensor
+        mask = torch.rand_like(tensor) > self.p
+        return tensor * mask
+    
+
+@dataclass
+class RandomBandRotation:
+    """Applies band rotation augmentation by shifting the electrode channels
+    by an offset value randomly chosen from ``offsets``. By default, assumes
+    the input is of shape (..., C).
+
+    NOTE: If the input is 3D with batch dim (TNC), then this transform
+    applies band rotation for all items in the batch with the same offset.
+    To apply different rotations each batch item, use the ``ForEach`` wrapper.
+
+    Args:
+        offsets (list): List of integers denoting the offsets by which the
+            electrodes are allowed to be shifted. A random offset from this
+            list is chosen for each application of the transform.
+        channel_dim (int): The electrode channel dimension. (default: -1)
+    """
+
+    offsets: Sequence[int] = (-1, 0, 1)
+    channel_dim: int = -1
+
+    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
+        # Choose a random offset from the list
+        offset = np.random.choice(self.offsets) if len(self.offsets) > 0 else 0
+        return tensor.roll(offset, dims=self.channel_dim)
+    
+@dataclass
+class RandomResampling:
+    """Applies random resampling augmentation to the input tensor along the time dimension.
+    The resampling factor is randomly chosen from a specified range.
+
+    Args:
+        min_factor (float): Minimum resampling factor. (default: 0.8)
+        max_factor (float): Maximum resampling factor. (default: 1.2)
+    """
+
+    min_factor: float = 0.8
+    max_factor: float = 1.2
+
+    def __post_init__(self) -> None:
+        assert self.min_factor > 0, "min_factor must be greater than 0"
+        assert self.max_factor > 0, "max_factor must be greater than 0"
+        assert self.min_factor <= self.max_factor, "min_factor must be less than or equal to max_factor"
+
+    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
+        factor = np.random.uniform(self.min_factor, self.max_factor)
+        original_time_steps = tensor.size(0)
+        new_time_steps = int(original_time_steps * factor)
+        numpy_data = tensor.numpy()
+        resampled_data = resample(numpy_data, new_time_steps, axis=0)
+        resampled_tensor = torch.from_numpy(resampled_data).to(tensor.dtype)
+        return resampled_tensor
+    
+@dataclass
+class RandomMasking:
+    """Applies random masking to the input tensor along the time dimension.
+
+    Args:
+        mask_ratio (float): The ratio of the time steps to be masked. (default: 0.1)
+        mask_value (float): The value to set for the masked time steps. (default: 0.0)
+    """
+
+    mask_ratio: float = 0.1
+    mask_value: float = 0.0
+
+    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
+        if self.mask_ratio <= 0.0:
+            return tensor
+
+        num_time_steps = tensor.size(0)
+        num_masked_steps = int(self.mask_ratio * num_time_steps)
+
+        if num_masked_steps == 0:
+            return tensor
+
+        start_indices = torch.randint(0, num_time_steps - num_masked_steps + 1, (1,))
+
+        mask = torch.ones_like(tensor)
+        mask[start_indices:start_indices + num_masked_steps] = self.mask_value
+
+        return tensor * mask
