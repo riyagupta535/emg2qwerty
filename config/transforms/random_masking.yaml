@@ -25,6 +25,26 @@ specaug:
   n_freq_masks: 2
   freq_mask_param: 4
 
+dropout:
+  _target_: emg2qwerty.transforms.Dropout
+  p: 0.2
+
+gaussian_noise:
+  _target_: emg2qwerty.transforms.GaussianNoise
+  mean: 0.0
+  std: 0.01
+
+random_resampling:
+  _target_: emg2qwerty.transforms.RandomResampling
+  min_factor: 0.8
+  max_factor: 1.2
+
+random_masking:
+  _target_: emg2qwerty.transforms.RandomMasking
+  mask_ratio: 0.1
+  mask_value: 0.0
+
+
 transforms:
   train:
     - ${to_tensor}
@@ -32,6 +52,7 @@ transforms:
     - ${temporal_jitter}
     - ${logspec}
     - ${specaug}
+    - ${random_masking}
 
   val:
     - ${to_tensor}

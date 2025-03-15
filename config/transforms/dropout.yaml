@@ -4,38 +4,55 @@ to_tensor:
   fields: [emg_left, emg_right]
 
 band_rotation:
-  _target_: emg2qwerty.transforms.ForEach  # i.i.d rotation offset for each band
+  _target_: emg2qwerty.transforms.ForEach
   transform:
     _target_: emg2qwerty.transforms.RandomBandRotation
     offsets: [-1, 0, 1]
 
 temporal_jitter:
   _target_: emg2qwerty.transforms.TemporalAlignmentJitter
-  max_offset: 120  # Max 60ms jitter for 2kHz EMG
+  max_offset: 120
 
 logspec:
   _target_: emg2qwerty.transforms.LogSpectrogram
   n_fft: 64
-  hop_length: 16  # Downsamples from 2kHz to 125Hz
+  hop_length: 16
 
 specaug:
   _target_: emg2qwerty.transforms.SpecAugment
   n_time_masks: 3
-  time_mask_param: 25  # Max 200ms per time mask for 125Hz spectrogram
+  time_mask_param: 25
   n_freq_masks: 2
   freq_mask_param: 4
 
 dropout:
   _target_: emg2qwerty.transforms.Dropout
-  p: 0.2  # Dropout probability (can be adjusted)
+  p: 0.2
+
+gaussian_noise:
+  _target_: emg2qwerty.transforms.GaussianNoise
+  mean: 0.0
+  std: 0.01
+
+random_resampling:
+  _target_: emg2qwerty.transforms.RandomResampling
+  min_factor: 0.8
+  max_factor: 1.2
+
+random_masking:
+  _target_: emg2qwerty.transforms.RandomMasking
+  mask_ratio: 0.1
+  mask_value: 0.0
+
 
 transforms:
   train:
     - ${to_tensor}
-    - ${band_rotation}  # RandomBandRotation applied here
+    - ${band_rotation}
     - ${temporal_jitter}
     - ${logspec}
     - ${specaug}
+    - ${dropout}
 
   val:
     - ${to_tensor}

@@ -8,6 +8,7 @@ from collections.abc import Sequence
 
 import torch
 from torch import nn
+from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
 
 class SpectrogramNorm(nn.Module):
@@ -278,3 +279,141 @@ class TDSConvEncoder(nn.Module):
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         return self.tds_conv_blocks(inputs)  # (T, N, num_features)
+
+
+class CNNEncoder(nn.Module):
+    """A CNN-based encoder optimized for EMG signal processing."""
+
+    def __init__(
+        self,
+        num_features: int,
+        conv_layers: Sequence[dict],
+        output_features: int = 768  # Ensure correct output size
+    ) -> None:
+        super().__init__()
+        layers = []
+        in_channels = num_features
+
+        for layer in conv_layers:
+            layers.append(nn.Conv1d(
+                in_channels=in_channels,
+                out_channels=layer["out_channels"],
+                kernel_size=layer["kernel_size"],
+                stride=layer.get("stride", 1),
+                padding="same",
+                dilation=layer.get("dilation", 1),
+                groups=min(in_channels, layer["out_channels"])
+            ))
+            layers.append(nn.ReLU())
+            layers.append(nn.BatchNorm1d(layer["out_channels"]))
+            layers.append(nn.Dropout(layer.get("dropout", 0.1)))
+            in_channels = layer["out_channels"]
+
+        self.encoder = nn.Sequential(*layers)
+
+        self.feature_adjust = nn.Linear(in_channels, output_features)
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        inputs = inputs.permute(1, 2, 0)
+        outputs = self.encoder(inputs)
+        outputs = outputs.permute(2, 0, 1)
+        outputs = self.feature_adjust(outputs)
+        return outputs
+
+class TDSLSTMEncoder(nn.Module):
+    def __init__(
+        self,
+        num_features: int,
+        lstm_hidden_size: int = 128,
+        num_lstm_layers: int = 4,
+    ) -> None:
+        super().__init__()
+
+        self.lstm_layers = nn.LSTM(
+            input_size = num_features,
+            hidden_size=lstm_hidden_size,
+            num_layers=num_lstm_layers,
+            batch_first=False,
+            bidirectional=True
+        )
+
+        self.fc_block = TDSFullyConnectedBlock(lstm_hidden_size*2)
+        self.out_layer=nn.Linear(lstm_hidden_size*2, num_features)
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        x, _ = self.lstm_layers(inputs)
+        x = self.fc_block(x)
+        x = self.out_layer(x)
+        return x
+
+
+class TDSGRUEncoder(nn.Module):
+    def __init__(
+        self,
+        num_features: int,
+        gru_hidden_size: int = 128,
+        num_gru_layers: int = 4,
+    ) -> None:
+        super().__init__()
+        
+        self.gru = nn.GRU(
+            input_size = num_features,
+            hidden_size = gru_hidden_size,
+            num_layers = num_gru_layers, 
+            batch_first = False,
+            bidirectional = True
+        )
+    def forward(self, x):
+        output, _ = self.gru(x)
+        return output
+
+class TDSTransformerEncoder(nn.Module):
+    def __init__(
+        self,
+        num_features: int,
+        num_heads: int = 4,
+        num_layers: int = 2,
+        d_model: int = None,
+        dropout: float = 0.1,
+        max_seq_len: int = 512
+    ) -> None:
+        super().__init__()
+
+        d_model = d_model if d_model is not None else num_features
+        self.position_encoding = Transformer_LearnablePositionalEncoder(d_model, max_len=max_seq_len)
+
+        self.encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=num_heads,
+            dim_feedforward=d_model * 2,
+            dropout=dropout,
+            batch_first=True
+        )
+
+        self.transformer_encoder = nn.TransformerEncoder(
+            self.encoder_layer, num_layers=num_layers
+        )
+
+        self.fc_block = TDSFullyConnectedBlock(d_model)
+        self.out_layer = nn.Linear(d_model, d_model)
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        x = inputs.permute(1, 0, 2)
+        x = self.position_encoding(x)
+        x = self.transformer_encoder(x)
+        x = self.fc_block(x)
+        x = self.out_layer(x)
+        x = x.permute(1, 0, 2)
+        return x
+
+
+
+class Transformer_LearnablePositionalEncoder(nn.Module):
+    def __init__(self, d_model, max_len=5000):
+        super(Transformer_LearnablePositionalEncoder, self).__init__()
+        self.embedding = nn.Embedding(max_len, d_model)
+
+    def forward(self, x):
+        seq_len = x.size(1)
+        position = torch.arange(seq_len, dtype=torch.long, device=x.device).unsqueeze(0)
+        return x + self.embedding(position)
